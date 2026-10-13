@@ -1,0 +1,73 @@
+
+name: CD - Produccion
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches:
+      - main
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  update-readme:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Descargar repositorio
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.head_ref || github.ref_name }}
+
+      - name: Incrementar version
+        env:
+          BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
+        run: |
+          if ! grep -qE 'AppVersion-[0-9]+' README.md; then
+            echo "ERROR: no se encuentra AppVersion en README.md"
+            exit 1
+          fi
+
+          CURRENT=$(grep -oE 'AppVersion-[0-9]+' README.md | head -n 1 | sed 's/AppVersion-//')
+          NEXT=$((CURRENT + 1))
+
+          sed -i "s/AppVersion-$CURRENT/AppVersion-$NEXT/" README.md
+          echo "Actualizada el $(date -u '+%Y-%m-%d %H:%M UTC')" >> README.md
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          if ! git diff --quiet -- README.md; then
+            git add README.md
+            git commit -m "Actualizar version de la aplicacion"
+            git push origin "HEAD:$BRANCH_NAME"
+          fi
+
+  validate-prod:
+    if: github.actor != 'github-actions[bot]'
+    needs: update-readme
+    runs-on: self-hosted
+
+    steps:
+      - name: Validar token de produccion
+        env:
+          PROD_TOKEN: ${{ secrets.PROD_TOKEN }}
+        shell: bash
+        run: |
+          if [ -z "$PROD_TOKEN" ] || [ -z "$LOCAL_PROD_TOKEN" ]; then
+            echo "ERROR: falta configurar un token"
+            exit 1
+          fi
+
+          if [ "$PROD_TOKEN" = "$LOCAL_PROD_TOKEN" ]; then
+            echo "Token de produccion validado correctamente"
+          else
+            echo "ERROR: los tokens no coinciden"
+            exit 1
+          fi
