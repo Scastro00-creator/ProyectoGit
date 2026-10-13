@@ -1,0 +1,62 @@
+
+name: CI - Desarrollo
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+    branches:
+      - develop
+  push:
+    branches:
+      - develop
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  update-readme:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Descargar repositorio
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event_name == 'pull_request' && github.head_ref || github.ref_name }}
+
+      - name: Añadir feature al README
+        env:
+          BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
+        run: |
+          LINE="Añadida feature: $BRANCH_NAME"
+          grep -Fqx "$LINE" README.md || echo "$LINE" >> README.md
+
+          if ! git diff --quiet -- README.md; then
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+            git add README.md
+            git commit -m "Actualizar README con feature"
+            git push origin "HEAD:$BRANCH_NAME"
+          fi
+
+  validate-dev:
+    needs: update-readme
+    runs-on: self-hosted
+
+    steps:
+      - name: Validar token de desarrollo
+        env:
+          DEV_TOKEN: ${{ secrets.DEV_TOKEN }}
+        shell: bash
+        run: |
+          if [ -z "$DEV_TOKEN" ] || [ -z "$LOCAL_DEV_TOKEN" ]; then
+            echo "ERROR: falta configurar un token"
+            exit 1
+          fi
+
+          if [ "$DEV_TOKEN" = "$LOCAL_DEV_TOKEN" ]; then
+            echo "Token de desarrollo validado correctamente"
+          else
+            echo "ERROR: los tokens no coinciden"
+            exit 1
+          fi
